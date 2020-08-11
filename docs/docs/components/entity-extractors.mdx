@@ -278,9 +278,9 @@ The `SpacyEntityExtractor` extractor does not provide a `confidence` level and w
   :::
 
 
-<a aria-hidden="true" tabIndex="-1" className="anchor enhancedAnchor" id="ducklinghttpextractor"></a>
+<a aria-hidden="true" tabIndex="-1" className="anchor enhancedAnchor" id="ducklingentityextractor"></a>
 
-## DucklingHTTPExtractor
+## DucklingEntityExtractor
 
 
 * **Short**
@@ -312,7 +312,7 @@ The `SpacyEntityExtractor` extractor does not provide a `confidence` level and w
           "start": 48,
           "value": "2017-04-10T00:00:00.000+02:00",
           "confidence": 1.0,
-          "extractor": "DucklingHTTPExtractor"
+          "extractor": "DucklingEntityExtractor"
       }]
   }
   ```
@@ -351,7 +351,7 @@ The `SpacyEntityExtractor` extractor does not provide a `confidence` level and w
 
   ```yaml
   pipeline:
-  - name: "DucklingHTTPExtractor"
+  - name: "DucklingEntityExtractor"
     # url of the running duckling server
     url: "http://localhost:8000"
     # dimensions to extract
