@@ -106,7 +106,6 @@ def get_component_class(component_name: Text) -> Type["Component"]:
         component_name = "DucklingEntityExtractor"
 
     if component_name not in registered_components:
-
         try:
             return class_from_module_path(component_name)
 
