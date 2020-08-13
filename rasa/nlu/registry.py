@@ -98,8 +98,10 @@ def get_component_class(component_name: Text) -> Type["Component"]:
 
     if component_name == "DucklingHTTPExtractor":
         raise_warning(
-            "The component DucklingHTTPExtractor' has been renamed to 'DucklingEntityExtractor'."
-            "Update your pipeline to use 'DucklingEntityExtractor'"
+            "The component 'DucklingHTTPExtractor' has been renamed to 'DucklingEntityExtractor'."
+            "Update your pipeline to use 'DucklingEntityExtractor'."
+            FutureWarning,
+            docs=DOCS_URL_COMPONENTS,
         )
         component_name = "DucklingEntityExtractor"
 
