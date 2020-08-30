@@ -112,17 +112,7 @@ module.exports = {
               items: [
                 'custom-actions',
                 'knowledge-bases',
-                {
-                  type: 'category',
-                  label: 'Rasa SDK',
-                  collapsed: true,
-                  items: [
-                    'running-action-server',
-                    'tracker-dispatcher',
-                    // 'events',
-                    // 'rasa-sdk-changelog'
-                  ],
-                },
+                'action-server'
               ],
             },
             'retrieval-actions',
@@ -173,6 +163,7 @@ module.exports = {
           items: [
             'http-api',
             'http-api-spec',
+            'action-server-api',
           ],
         },
         'jupyter-notebooks',
