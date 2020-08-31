@@ -33,7 +33,6 @@ from rasa.utils.common import TempDirectoryPath
 import rasa.utils.io as io_utils
 from tests.core.conftest import (
     DEFAULT_DOMAIN_PATH_WITH_SLOTS,
-    DEFAULT_NLU_DATA,
     DEFAULT_STACK_CONFIG,
     DEFAULT_STORIES_FILE,
     END_TO_END_STORY_FILE,
@@ -42,9 +41,15 @@ from tests.core.conftest import (
 
 DEFAULT_CONFIG_PATH = "rasa/cli/default_config.yml"
 
+DEFAULT_NLU_DATA = "examples/moodbot/data/nlu.yml"
+
 # we reuse a bit of pytest's own testing machinery, this should eventually come
 # from a separatedly installable pytest-cli plugin.
 pytest_plugins = ["pytester"]
+
+
+# these tests are run separately
+collect_ignore_glob = ["docs/*.py"]
 
 
 # https://github.com/pytest-dev/pytest-asyncio/issues/68
@@ -259,7 +264,7 @@ def write_endpoint_config_to_yaml(
     endpoints_path = path / endpoints_filename
 
     # write endpoints config to file
-    io_utils.write_yaml_file(data, endpoints_path)
+    io_utils.write_yaml(data, endpoints_path)
     return endpoints_path
 
 

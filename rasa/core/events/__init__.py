@@ -56,17 +56,27 @@ def deserialise_entities(entities: Union[Text, List[Any]]) -> List[Dict[Text, An
     return [e for e in entities if isinstance(e, dict)]
 
 
-def md_format_message(text, intent, entities) -> Text:
-    from rasa.nlu.training_data.formats import MarkdownWriter, MarkdownReader
+def md_format_message(
+    text: Text, intent: Optional[Text], entities: Union[Text, List[Any]]
+) -> Text:
+    """Uses NLU parser information to generate a message with inline entity annotations.
 
-    message_from_md = MarkdownReader().parse_training_example(text)
+    Arguments:
+        text: text of the message
+        intent: intent of the message
+        entities: entities of the message
+
+    Return:
+        Message with entities annotated inline, e.g.
+        `I am from [Berlin]{"entity": "city"}`.
+    """
+    from rasa.nlu.training_data.formats.readerwriter import TrainingDataWriter
+    from rasa.nlu.training_data import entities_parser
+
+    message_from_md = entities_parser.parse_training_example(text, intent)
     deserialised_entities = deserialise_entities(entities)
-    return MarkdownWriter.generate_message_md(
-        {
-            "text": message_from_md.text,
-            "intent": intent,
-            "entities": deserialised_entities,
-        }
+    return TrainingDataWriter.generate_message(
+        {"text": message_from_md.text, "entities": deserialised_entities,}
     )
 
 
@@ -226,16 +236,16 @@ class UserUttered(Event):
 
         super().__init__(timestamp, metadata)
 
+        self.parse_data = {
+            "intent": self.intent,
+            "entities": self.entities,
+            "text": text,
+            "message_id": self.message_id,
+            "metadata": self.metadata,
+        }
+
         if parse_data:
-            self.parse_data = parse_data
-        else:
-            self.parse_data = {
-                "intent": self.intent,
-                "entities": self.entities,
-                "text": text,
-                "message_id": self.message_id,
-                "metadata": self.metadata,
-            }
+            self.parse_data.update(**parse_data)
 
     @staticmethod
     def _from_parse_data(
@@ -332,7 +342,9 @@ class UserUttered(Event):
                 intent=self.intent.get(INTENT_NAME_KEY, ""), entities=ent_string
             )
             if e2e:
-                message = md_format_message(self.text, self.intent, self.entities)
+                message = md_format_message(
+                    self.text, self.intent.get("name"), self.entities
+                )
                 return "{}: {}".format(self.intent.get(INTENT_NAME_KEY), message)
             else:
                 return parse_string
@@ -1114,12 +1126,11 @@ class AgentUttered(Event):
             raise ValueError(f"Failed to parse agent uttered event. {e}")
 
 
-class Form(Event):
-    """If `name` is not None: activates a form with `name`
-        else deactivates active form
+class ActiveLoop(Event):
+    """If `name` is not None: activates a loop with `name` else deactivates active loop.
     """
 
-    type_name = "form"
+    type_name = "active_loop"
 
     def __init__(
         self,
@@ -1131,26 +1142,26 @@ class Form(Event):
         super().__init__(timestamp, metadata)
 
     def __str__(self) -> Text:
-        return f"Form({self.name})"
+        return f"Loop({self.name})"
 
     def __hash__(self) -> int:
         return hash(self.name)
 
     def __eq__(self, other) -> bool:
-        if not isinstance(other, Form):
+        if not isinstance(other, ActiveLoop):
             return False
         else:
             return self.name == other.name
 
     def as_story_string(self) -> Text:
         props = json.dumps({"name": self.name})
-        return f"{self.type_name}{props}"
+        return f"{ActiveLoop.type_name}{props}"
 
     @classmethod
-    def _from_story_string(cls, parameters) -> List["Form"]:
+    def _from_story_string(cls, parameters: Dict[Text, Any]) -> List["ActiveLoop"]:
         """Called to convert a parsed story line into an event."""
         return [
-            Form(
+            ActiveLoop(
                 parameters.get("name"),
                 parameters.get("timestamp"),
                 parameters.get("metadata"),
@@ -1163,12 +1174,29 @@ class Form(Event):
         return d
 
     def apply_to(self, tracker: "DialogueStateTracker") -> None:
-        tracker.change_form_to(self.name)
+        tracker.change_loop_to(self.name)
+
+
+class LegacyForm(ActiveLoop):
+    """Legacy handler of old `Form` events.
+
+    The `ActiveLoop` event used to be called `Form`. This class is there to handle old
+    legacy events which were stored with the old type name `form`.
+    """
+
+    type_name = "form"
+
+    def as_dict(self) -> Dict[Text, Any]:
+        d = super().as_dict()
+        # Dump old `Form` events as `ActiveLoop` events instead of keeping the old
+        # event type.
+        d["event"] = ActiveLoop.type_name
+        return d
 
 
 class FormValidation(Event):
-    """Event added by FormPolicy to notify form action
-        whether or not to validate the user input"""
+    """Event added by FormPolicy and RulePolicy to notify form action
+       whether or not to validate the user input."""
 
     type_name = "form_validation"
 

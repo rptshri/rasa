@@ -33,6 +33,7 @@ from rasa.core.constants import (
     SLOT_LAST_OBJECT,
     SLOT_LAST_OBJECT_TYPE,
     SLOT_LISTED_ITEMS,
+    DEFAULT_INTENTS,
 )
 from rasa.core.events import SlotSet, UserUttered
 from rasa.core.slots import Slot, UnfeaturizedSlot, CategoricalSlot
@@ -163,18 +164,7 @@ class Domain:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Domain":
-        utter_templates = cls.collect_templates(data.get(KEY_RESPONSES, {}))
-        if "templates" in data:
-            raise_warning(
-                "Your domain file contains the key: 'templates'. This has been "
-                "deprecated and renamed to 'responses'. The 'templates' key will "
-                "no longer work in future versions of Rasa. Please replace "
-                "'templates' with 'responses'",
-                FutureWarning,
-                docs=DOCS_URL_DOMAINS,
-            )
-            utter_templates = cls.collect_templates(data.get("templates", {}))
-
+        utter_templates = data.get(KEY_RESPONSES, {})
         slots = cls.collect_slots(data.get(KEY_SLOTS, {}))
         additional_arguments = data.get("config", {})
         session_config = cls._get_session_config(data.get(SESSION_CONFIG_KEY, {}))
@@ -223,11 +213,14 @@ class Domain:
         """Merge this domain with another one, combining their attributes.
 
         List attributes like ``intents`` and ``actions`` will be deduped
-        and merged. Single attributes will be taken from ``self`` unless
-        override is `True`, in which case they are taken from ``domain``."""
+        and merged. Single attributes will be taken from `self` unless
+        override is `True`, in which case they are taken from `domain`."""
 
-        if not domain:
+        if not domain or domain.is_empty():
             return self
+
+        if self.is_empty():
+            return domain
 
         domain_dict = domain.as_dict()
         combined = self.as_dict()
@@ -369,17 +362,14 @@ class Domain:
         intents = copy.deepcopy(intents)
         intent_properties = {}
         duplicates = set()
+
         for intent in intents:
-            if not isinstance(intent, dict):
-                intent = {intent: {USE_ENTITIES_KEY: True, IGNORE_ENTITIES_KEY: []}}
+            intent_name, properties = cls._intent_properties(intent, entities)
 
-            name = list(intent.keys())[0]
-            if name in intent_properties.keys():
-                duplicates.add(name)
+            if intent_name in intent_properties.keys():
+                duplicates.add(intent_name)
 
-            intent = cls._transform_intent_properties_for_internal_use(intent, entities)
-
-            intent_properties.update(intent)
+            intent_properties.update(properties)
 
         if duplicates:
             raise InvalidDomain(
@@ -387,47 +377,35 @@ class Domain:
                 f"Either rename or remove the duplicate ones."
             )
 
+        cls._add_default_intents(intent_properties, entities)
+
         return intent_properties
 
-    @staticmethod
-    def collect_templates(
-        yml_templates: Dict[Text, List[Any]]
-    ) -> Dict[Text, List[Dict[Text, Any]]]:
-        """Go through the templates and make sure they are all in dict format."""
-        templates = {}
-        for template_key, template_variations in yml_templates.items():
-            validated_variations = []
-            if template_variations is None:
-                raise InvalidDomain(
-                    "Response '{}' does not have any defined variations.".format(
-                        template_key
-                    )
-                )
+    @classmethod
+    def _intent_properties(
+        cls, intent: Union[Text, Dict[Text, Any]], entities: List[Text]
+    ) -> Tuple[Text, Dict[Text, Any]]:
+        if not isinstance(intent, dict):
+            intent_name = intent
+            intent = {intent_name: {USE_ENTITIES_KEY: True, IGNORE_ENTITIES_KEY: []}}
+        else:
+            intent_name = list(intent.keys())[0]
 
-            for t in template_variations:
+        return (
+            intent_name,
+            cls._transform_intent_properties_for_internal_use(intent, entities),
+        )
 
-                # responses should be a dict with options
-                if isinstance(t, str):
-                    raise_warning(
-                        f"Responses should not be strings anymore. "
-                        f"Response '{template_key}' should contain "
-                        f"either a '- text: ' or a '- custom: ' "
-                        f"attribute to be a proper response.",
-                        FutureWarning,
-                        docs=DOCS_URL_DOMAINS + "#responses",
-                    )
-                    validated_variations.append({"text": t})
-                elif "text" not in t and "custom" not in t:
-                    raise InvalidDomain(
-                        f"Response '{template_key}' needs to contain either "
-                        f"'- text: ' or '- custom: ' attribute to be a proper "
-                        f"response."
-                    )
-                else:
-                    validated_variations.append(t)
-
-            templates[template_key] = validated_variations
-        return templates
+    @classmethod
+    def _add_default_intents(
+        cls,
+        intent_properties: Dict[Text, Dict[Text, Union[bool, List]]],
+        entities: List[Text],
+    ) -> None:
+        for intent_name in DEFAULT_INTENTS:
+            if intent_name not in intent_properties:
+                _, properties = cls._intent_properties(intent_name, entities)
+                intent_properties.update(properties)
 
     def __init__(
         self,
@@ -456,6 +434,8 @@ class Domain:
         self.slots = slots
         self.templates = templates
         self.session_config = session_config
+
+        self._custom_actions = action_names
 
         # only includes custom actions and utterance actions
         self.user_actions = action.combine_with_templates(action_names, templates)
@@ -833,7 +813,7 @@ class Domain:
             KEY_ENTITIES: self.entities,
             KEY_SLOTS: self._slot_definitions(),
             KEY_RESPONSES: self.templates,
-            KEY_ACTIONS: self.user_actions,  # class names of the actions
+            KEY_ACTIONS: self._custom_actions,  # class names of the actions
             KEY_FORMS: self.forms,
         }
 
@@ -859,6 +839,9 @@ class Domain:
         intents_for_file = []
 
         for intent_name, intent_props in intent_properties.items():
+            if intent_name in DEFAULT_INTENTS:
+                # Default intents should be not dumped with the domain
+                continue
             use_entities = set(intent_props[USED_ENTITIES_KEY])
             ignore_entities = set(self.entities) - use_entities
             if len(use_entities) == len(self.entities):
@@ -1143,9 +1126,9 @@ class Domain:
         Returns:
             `True` if it's a domain file, otherwise `False`.
         """
-        from rasa.data import YAML_FILE_EXTENSIONS
+        from rasa.data import is_likely_yaml_file
 
-        if not Path(filename).suffix in YAML_FILE_EXTENSIONS:
+        if not is_likely_yaml_file(filename):
             return False
         try:
             content = rasa.utils.io.read_yaml_file(filename)
